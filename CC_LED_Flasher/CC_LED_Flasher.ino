@@ -102,6 +102,12 @@ void setup() {
   Serial.println(I_base850);
 }
 
+int getAmbient(int signal){
+  for(int i = 0; i < 5; i++){
+    
+  }
+}
+
 void loop() {
   switch(phase){
     case 0:   //Dark phase, all LEDs off

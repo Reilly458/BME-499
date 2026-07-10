@@ -2,6 +2,7 @@ import serial
 import csv
 import os
 import pandas as pd
+from xcelWriter import *
 
 
 # Match this to your Arduino's serial port (e.g., 'COM3' on Windows or '/dev/ttyUSB0' on Linux)
@@ -21,10 +22,12 @@ try:
         writer = csv.writer(file)
         print("Logging started. Press Ctrl+C to stop.")    
     
+        for _ in range(9):
+                    print(ser.readline().decode('utf-8').strip())
+
         while True:
-            if ser.in_waitin > 0:
-                for _ in range(9):
-                    print(ser.readline().strip("b'\\r\\n"))
+            if ser.in_waiting > 0:
+                
                 # Read a line of data from the Arduino
                 line = ser.readline().decode('utf-8').strip()
                 if line:
@@ -42,12 +45,13 @@ except KeyboardInterrupt:
     
 except (serial.SerialException, OSError) as error:
     print(f"\n[DISCONNECTED] Serial error detected: {error}")
-    should_process_excel = True
+    process = True
     
 if process:
     print(f"Processing '{csv_file}' into Excel Writer...")
 
     if os.path.exists(csv_file) and os.path.getsize(csv_file) > 0:
        df = pd.read_csv(csv_file)
-       df.to_excel(excel_file, sheet_name="Results", index=False)
-ser.close()
+       #df.to_excel(excel_file, sheet_name="Results", index=False)
+       process_csv(df, excel_file)
+
