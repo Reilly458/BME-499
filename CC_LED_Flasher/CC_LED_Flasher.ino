@@ -16,6 +16,8 @@ const int flash_ms = 1500;    //15ms ~ 16Hz sweep rate
 //mBLL variables
 float I_base740 = 0.0;
 float I_base850 = 0.0;
+int ambientDC = 0;
+int ambientAC = 0;
 float DPF = 3.5;    //~3.5-4 fpr mucous membrane tissue
 const float r = 0.0;    //distance between center of led and center of photodiode, mm or um most likely
 const float L_DPF = r * DPF; 
@@ -37,13 +39,36 @@ void LEDsoff(){
 
 void getBaseline(int TLC_channel, int brightness){
   LEDsoff();
+  delay(2);
   float dark = analogRead(pinRawDC);    //Measure dark ambient light with both LEDs off, raw ADC value
+  Serial.print("Dark current = ");
+  Serial.println(dark);
   updateLED1(TLC_channel, brightness, flash_ms);    //Turn on 1 LED, 15ms delay for opamp settling
   if(TLC_channel == 1){ 
-    I_base740 = analogRead(pinRawDC) - dark;    //Read LED on signal and subtract off dark ADC value
+    Serial.print("740nm Baseline readings: ");
+    for(int i =0; i < 5; i++){
+      if (i == 0){
+        I_base740 = (I_base740 + analogRead(pinRawDC) - dark) / 1;  
+      }
+      else{ I_base740 = (I_base740 + analogRead(pinRawDC) - dark) / 2; }   //Read LED on signal and subtract off dark ADC value
+      Serial.print(I_base740);
+      Serial.print(", ");
+      delay(1000);
+    }
+    Serial.println();
   }
   else{
-    I_base850 = analogRead(pinRawDC) - dark;
+    Serial.print("850nm Baseline readings: ");
+    for(int i =0; i < 5; i++){
+      if (i == 0){
+        I_base850 = (I_base850 + analogRead(pinRawDC) - dark) / 1;    //Read LED on signal and subtract off dark ADC value
+      }
+      else{ I_base850 = (I_base850 + analogRead(pinRawDC) - dark) / 2; }   //Read LED on signal and subtract off dark ADC value
+      Serial.print(I_base740);
+      Serial.print(", ");
+      delay(1000);
+    }
+    Serial.println();  
   }
   LEDsoff();
 }
@@ -58,10 +83,10 @@ void calibrate(){
   getBaseline(DEOXY_740NM, BRIGHT740);
   getBaseline(OXY_850NM, BRIGHT850);
   // Safety check to ensure the probe isn't reading open air/0 light
-  /*if (I_base740 < 1.0 || I_base850 < 1.0) {
+  if (I_base740 < 1.0 || I_base850 < 1.0) {
     Serial.println("ERROR: Low baseline signal detected! Check probe placement and restart Arduino.");
     while(1); // Halt execution
-  }*/
+  }
   Serial.println("Calibration Complete.");
   delay(1000);
 }
@@ -102,42 +127,46 @@ void setup() {
   Serial.println(I_base850);
 }
 
-int getAmbient(int signal){
-  for(int i = 0; i < 5; i++){
-    
-  }
-}
-
 void loop() {
-  switch(phase){
+  //Serial.println("stuck at start of main loop line 125");
+
+  switch(phase){    
     case 0:   //Dark phase, all LEDs off
       LEDsoff();
       delay(2);
-      int ambientDC = analogRead(pinRawDC);
-      int ambientAC = analogRead(pinPulseAC);
-      printSample(ambientDC, ambientAC, 0, 0, 0, 0, 0);
-      delay(flash_ms);     
+      for(int i = 0; i < 5; i++){
+        ambientDC = analogRead(pinRawDC);
+        ambientAC = analogRead(pinPulseAC);
+        printSample(ambientDC, ambientAC, 0, 0, 0, 0, 0);
+        delay(flash_ms/5);
+      }     
 
     case 1:   //740nm LED active
       updateLED1(DEOXY_740NM, BRIGHT740,2);    
-      float I_Active740 = analogRead(pinRawDC) - ambientDC; 
-      int livePulseAC740 = analogRead(pinPulseAC) - ambientAC;
-      printSample(ambientDC, ambientAC, I_Active740, livePulseAC740, 0, 0, 0);
-      delay(flash_ms);
+      for(int i = 0; i < 5; i++){
+        float I_Active740 = analogRead(pinRawDC) - ambientDC; 
+        int livePulseAC740 = analogRead(pinPulseAC) - ambientAC;
+        printSample(ambientDC, ambientAC, I_Active740, livePulseAC740, 0, 0, 0);
+        delay(flash_ms/5);
+      }
   
     case 2:   //Dark phase, all LEDs off
-      LEDsoff();      
-      ambientDC = analogRead(pinRawDC);
-      ambientAC = analogRead(pinPulseAC);
-      printSample(ambientDC, ambientAC, 0, 0, 0, 0, 0);  
-      delay(flash_ms);
-
+      LEDsoff();  
+      delay(2);
+      for(int i = 0; i < 5; i++){    
+        ambientDC = analogRead(pinRawDC);
+        ambientAC = analogRead(pinPulseAC);
+        printSample(ambientDC, ambientAC, 0, 0, 0, 0, 0);  
+        delay(flash_ms/5);
+      }
     case 3:   //850nm LED active
-      updateLED1(OXY_850NM, BRIGHT850,0);      
-      float I_Active850 = analogRead(pinRawDC) - ambientDC; 
-      int livePulseAC850 = analogRead(pinPulseAC) - ambientAC;
-      printSample(ambientDC, ambientAC, 0, 0, I_Active850, livePulseAC850, 0);
-      delay(flash_ms);
+      updateLED1(OXY_850NM, BRIGHT850,2);
+      for(int i = 0; i < 5; i++){      
+        float I_Active850 = analogRead(pinRawDC) - ambientDC; 
+        int livePulseAC850 = analogRead(pinPulseAC) - ambientAC;
+        printSample(ambientDC, ambientAC, 0, 0, I_Active850, livePulseAC850, 0);
+        delay(flash_ms/5);
+      }
   }  
   phase = (phase + 1) % 4;
 

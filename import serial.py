@@ -14,7 +14,8 @@ csv_file = "data.csv"
 excel_file = "results.xlsx"
 
 try:
-    # Open serial connection
+# Open serial connection
+#with serial.Serial(SERIAL_PORT, BAUD_RATE) as ser:
     ser = serial.Serial(SERIAL_PORT, BAUD_RATE)
 
     # Create and open the CSV file in append mode
@@ -22,7 +23,7 @@ try:
         writer = csv.writer(file)
         print("Logging started. Press Ctrl+C to stop.")    
     
-        for _ in range(9):
+        for _ in range(14):
                     print(ser.readline().decode('utf-8').strip())
 
         while True:
@@ -52,6 +53,7 @@ if process:
 
     if os.path.exists(csv_file) and os.path.getsize(csv_file) > 0:
        df = pd.read_csv(csv_file)
+       df['Time'] = (df['Time']-df['Time'].iloc[0])*0.001
        #df.to_excel(excel_file, sheet_name="Results", index=False)
        process_csv(df, excel_file)
 
