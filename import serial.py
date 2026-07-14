@@ -2,7 +2,7 @@ import serial
 import csv
 import os
 import pandas as pd
-from xcelWriter import *
+from excelWriter import *
 
 
 # Match this to your Arduino's serial port (e.g., 'COM3' on Windows or '/dev/ttyUSB0' on Linux)
