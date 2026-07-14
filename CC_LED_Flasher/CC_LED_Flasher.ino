@@ -53,7 +53,7 @@ void getBaseline(int TLC_channel, int brightness){
       else{ I_base740 = (I_base740 + analogRead(pinRawDC) - dark) / 2; }   //Read LED on signal and subtract off dark ADC value
       Serial.print(I_base740);
       Serial.print(", ");
-      delay(1000);
+      delay(200);
     }
     Serial.println();
   }
@@ -66,7 +66,7 @@ void getBaseline(int TLC_channel, int brightness){
       else{ I_base850 = (I_base850 + analogRead(pinRawDC) - dark) / 2; }   //Read LED on signal and subtract off dark ADC value
       Serial.print(I_base740);
       Serial.print(", ");
-      delay(1000);
+      delay(200);
     }
     Serial.println();  
   }
@@ -139,7 +139,8 @@ void loop() {
         ambientAC = analogRead(pinPulseAC);
         printSample(ambientDC, ambientAC, 0, 0, 0, 0, 0);
         delay(flash_ms/5);
-      }     
+      }    
+      break; 
 
     case 1:   //740nm LED active
       updateLED1(DEOXY_740NM, BRIGHT740,2);    
@@ -149,6 +150,7 @@ void loop() {
         printSample(ambientDC, ambientAC, I_Active740, livePulseAC740, 0, 0, 0);
         delay(flash_ms/5);
       }
+      break;
   
     case 2:   //Dark phase, all LEDs off
       LEDsoff();  
@@ -159,6 +161,8 @@ void loop() {
         printSample(ambientDC, ambientAC, 0, 0, 0, 0, 0);  
         delay(flash_ms/5);
       }
+      break;
+
     case 3:   //850nm LED active
       updateLED1(OXY_850NM, BRIGHT850,2);
       for(int i = 0; i < 5; i++){      
@@ -167,9 +171,10 @@ void loop() {
         printSample(ambientDC, ambientAC, 0, 0, I_Active850, livePulseAC850, 0);
         delay(flash_ms/5);
       }
+      break;
   }  
   phase = (phase + 1) % 4;
-
+}
   /*
   Tlc.set(1,0);
   Tlc.set(2, 4095);
@@ -247,8 +252,8 @@ void loop() {
     Serial.print(",");
     Serial.println(adc_vo1);
     delay(100);
-  }*/
-}
+  }
+}*/
 
 
 /*

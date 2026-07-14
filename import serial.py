@@ -23,7 +23,7 @@ try:
         writer = csv.writer(file)
         print("Logging started. Press Ctrl+C to stop.")    
     
-        for _ in range(14):
+        for _ in range(13):
                     print(ser.readline().decode('utf-8').strip())
 
         while True:

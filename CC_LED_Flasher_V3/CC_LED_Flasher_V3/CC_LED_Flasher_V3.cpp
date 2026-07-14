@@ -1,0 +1,243 @@
+
+#define F_CPU 16000000UL          // Define CPU clock speed as 16MHz
+#include <avr/io.h>               // Include standard AVR I/O register definitions
+#include <avr/interrupt.h>        // Include AVR interrupt macros
+#include <stdio.h>                // Include stdio for sprintf formatting
+
+#define BAUD 9600                 // Define desired baud rate for serial communication
+#define MYUBRR ((F_CPU / (BAUD * 16UL)) - 1) // Calculate UBRR value for 9600 baud
+
+// Control Pins
+#define XLAT_PIN  PB0             // Define XLAT (Latch) pin on Port B pin 0
+#define BLANK_PIN PB4             // Define BLANK (PWM reset) pin on Port B pin 4
+
+// Global Variables
+uint16_t led_data = {0};      // Array holding 12-bit brightness values for TLC channels
+volatile uint16_t adc_a0 = 0;     // Stores the latest A0 analog reading
+volatile uint16_t adc_a1 = 0;     // Stores the latest A1 analog reading
+volatile uint16_t adc_a2 = 0;     // Stores the latest A2 analog reading
+volatile uint16_t adc_a3 = 0;     // Stores the latest A3 analog reading
+volatile uint8_t state = 0;       // Tracking variable for the 4 LED states (0 to 3)
+volatile uint8_t time_ticks = 0;  // Counter incremented every 50ms for timing
+volatile uint8_t data_ready = 0;  // Flag set to 1 when a new ADC sample is taken
+
+void usart_init(unsigned int ubrr) {
+	UBRR0H = (unsigned char)(ubrr >> 8); // Load upper 8 bits of baud rate prescaler
+	UBRR0L = (unsigned char)ubrr;        // Load lower 8 bits of baud rate prescaler
+	UCSR0B = (1 << TXEN0);               // Enable Transmitter peripheral on USART0
+	UCSR0C = (1 << UCSZ01) | (1 << UCSZ00); // Set frame format: 8 data bits, 1 stop bit
+}
+
+void usart_transmit(unsigned char data) {
+	while (!(UCSR0A & (1 << UDRE0)));    // Wait until the transmit buffer is empty and ready
+	UDR0 = data;                         // Put data into buffer, physically sending the byte
+}
+
+void usart_print_string(const char* str) {
+	while (*str) {                       // Loop through the string array character by character
+		usart_transmit(*str++);          // Transmit character and advance pointer
+	}
+}
+
+void spi_init(void) {
+	DDRB |= (1 << DDB2) | (1 << DDB1) | (1 << XLAT_PIN) | (1 << BLANK_PIN); // Set SPI pins as output
+	DDRB |= (1 << DDB0);                 // Keep SS pin as output to lock Master Mode
+	SPCR = (1 << SPE) | (1 << MSTR);        // Enable SPI in Master Mode
+}
+
+void spi_transmit(uint8_t data) {
+	SPDR = data;                         // Start 8-bit hardware transmission
+	while (!(SPSR & (1 << SPIF)));        // Wait until transmission cycle finishes
+}
+
+void send_tlc_data(void) {
+	PORTB |= (1 << BLANK_PIN);           // Disable TLC outputs during shifting
+	for (int i = 15; i > 0; i -= 2) {
+		uint16_t ch_a = led_data[i];     // Odd channel
+		uint16_t ch_b = led_data[i-1];   // Even channel
+		spi_transmit((ch_a >> 4) & 0xFF);
+		spi_transmit(((ch_a & 0x0F) << 4) | ((ch_b >> 8) & 0x0F));
+		spi_transmit(ch_b & 0xFF);
+	}
+	PORTB |= (1 << XLAT_PIN);            // Pulse latch high
+	PORTB &= ~(1 << XLAT_PIN);           // Pull latch low
+	PORTB &= ~(1 << BLANK_PIN);          // Re-enable PWM driving
+}
+
+void timer1_init(void) {
+	DDRB |= (1 << DDB5);                 // Set PB5 (OC1A) as physical output for GSCLK
+	TCCR1A = (1 << COM1A0);              // Toggle OC1A on compare match
+	TCCR1B = (1 << WGM12) | (1 << CS10); // Set CTC mode, no prescaler
+	OCR1A = 3;                           // Broadcast background 2MHz clock signal
+}
+
+void adc_init(void) {
+	 /*
+	ADMUX - ADC Multiplexer Selection Register	
+	bit          7           6          5         4        3         2          1          0
+	name       REFS1       REFS0      ADLAR       -       MUX3      MUX2       MUX1       MUX0
+	set to       0           1          0         0        0         0          0          0
+	
+	REFS1 = 0    
+	REFS0 = 1	use AVCC for reference voltage
+	ADLAR = 0    right justify ADC result in ADCH/ADCL	
+	bit 4 = 0	
+	MUX3 = 0     set dynamically, pin A0 = 0x00 
+	MUX2 = 0
+	MUX1 = 0
+	MUX0 = 0
+	*/
+	ADMUX = (1 << REFS0);                // Set AVCC (5V) as reference voltage
+	ADCSRA - ADC Control and Status Register A
+	/*
+	bit          7           6            5          4          3            2           1           0
+	name        ADEN        ADSC        ADATE       ADIF       ADIE        ADPS2       ADPS1       ADPS0
+	set to       1           0            0          0          0            1           1           1	
+	
+	ADEN = 1     enable ADC
+	ADSC = 0     don't start ADC yet
+	ADATE = 0    disable ADC auto trigger 
+	ADIF = 0     don't set ADC interrupt flag
+	ADIE = 0     disable ADC interrupt	
+	ADPS2 = 1
+	ADPS1 = 1    Prescaler = 128. Calculates out to: 16 MHz CPU clock / 128 = 125 kHz ADC hardware clock).
+	ADPS0 = 1
+	*/
+	ADCSRA = (1 << ADEN) | (1 << ADPS2) | (1 << ADPS1) | (1 << ADPS0); // Enable ADC, prescaler 128
+}
+
+uint16_t adc_read(uint8_t channel) {
+	ADMUX = (ADMUX & 0xF0) | (channel & 0x0F); // Select analog input channel, current ADMUX 0b10000000 bitwise or (channel # 0b0000cccc bitwise and 0b00001111)
+	ADCSRA |= (1 << ADSC);               // Start conversion, targets only ADSC bit position(6) and sets it to 1, other positions remain unchanged
+	while (ADCSRA & (1 << ADSC));        // Wait for hardware to clear flag, runs until ADSC bit is set back to 0
+	return ADC;                          // Return 10-bit numerical result (0-1023)
+}
+
+void timer3_init(void) {
+	/*
+	TCCR3A - Timer/Counter 3 Control Register A
+	bit           7         6         5         4        3       2        1        0
+	name        COM3A1    COM3A0    C3M0B1    COM3B0     -       -      WGM31    WGM30
+	set to        0         0         0         0        0       0        0        0
+	
+	COM3A1 = 0    normal port operation, OC0A disconnected
+	COM3A0 = 0	
+	COM3B1 = 0    normal port operation, OC0B disconnected
+	COM3B0 = 0	
+	bit 3 = 0
+	bit 2 = 0	
+	WGM31 = 0     CTC (Clear Timer on Compare match) mode, see TCCR3B also
+	WGM30 = 0     TCNT3 will count up to value in OCR3A, then signal timer 3 compare interrupt
+	*/
+	TCCR3A = 0;     // Reset control register
+	/*
+	TCCR3B - Timer/Counter 3 Control Register B	
+	bit           7          6        5       4         3         2         1        0
+	name        FOC3A      FOC3B      -       -       WGM32      CS32      CS31     CS30
+	set to        0          0        0       0         1         1         0        0
+	
+	FOC3A = 0     don't use Force Output Compare A
+	FOC3B = 0
+	bit 5 = 0
+	bit 4 = 0
+	WGM32 = 1     CTC (Clear Timer on Compare match) mode 4
+	CS32 = 1	  clock / 256
+	CS31 = 0      clock / 1024
+	CS30 = 0
+	*/
+	TCCR3B = (1 << WGM32) | (1 << CS32); // Set CTC mode, prescaler 256
+	OCR3A = 3124;                        // Set threshold for exactly 50ms intervals, Set count limit: (16000000Hz / 256 clock speed) * 0.050 seconds - 1 = 3124 ticks
+	/*
+	TIMSK3 - Timer/Counter 3 Interrupt Mask Register	
+	bit           7        6        5       4       3       2         1         0
+	name          -        -        -       -       -     OCIE3B    OCIE3A    TOIE3
+	set to        0        0        0       0       0       0         1         0
+	
+	bit 7 = 0     don't use Force Output Compare A
+	bit 6 = 0
+	bit 5 = 0
+	bit 4 = 0
+	bit 3 = 0
+	OCIE3B = 0    don't enable Timer/Counter 3 Output Compare Match B Interrupt
+	OCIE3A = 1    enable Timer/Counter 3 Output Compare Match A Interrupt Enable
+	TOIE3 = 0     don't enable Timer/Counter 3 Overflow Interrupt
+	*/
+	TIMSK3 |= (1 << OCIE3A);             // Enable Timer 3 match interrupt
+}
+
+void clear_all_leds(void) {
+	for (int i = 0; i < 16; i++) {
+		led_data[i] = 0;                 // Set channel brightness to zero
+	}
+}
+
+// Background worker running every 50ms
+ISR(TIMER3_COMPA_vect) {
+	time_ticks++;                        // Increment timeline counter
+	
+	// Read appropriate channels based on matching active lighting phase
+	if (state == 0 || state == 2) {
+		adc_a0 = adc_read(0);            // Read A0 (Ambient DC Check) 
+		adc_a2 = adc_read(2);            // Read A2 (Ambient AC Check)
+	}
+	else if (state == 1) {
+		adc_a0 = adc_read(0);            // Read A0 (LED 1 Active DC) 740nm
+		adc_a2 = adc_read(2);            // Read A1 (LED 1 livePulseAC) 740nm
+	}
+	else if (state == 3) {
+		adc_a1 = adc_read(1);            // Read A1 (LED 2 Active DC)  850nm
+		adc_a3 - adc_read(3);			 // Read A3 (LED 2 livePulseAC) 850nm
+	}
+
+	data_ready = 1;                      // Set flag telling main loop new numbers are ready to print
+
+	// Step sequencer block checking if 250ms total window has elapsed
+	if (time_ticks >= 5) {
+		time_ticks = 0;                  // Reset tick timer
+		state = (state + 1) % 4;                         // Step to next scene scenario
+		//if (state > 3) state = 0;        // Loop back to start if array overflows
+		switch(state){
+		//if (state == 0 || state == 2) {
+			case 0:
+			case 2:
+				clear_all_leds();            // Drop both outputs to 0% PWM
+				break;
+		//}
+		//else if (state == 1) {
+			case 1:
+				clear_all_leds();
+				led_data[1] = 4095;          // Turn LED 1 to 100% full scale
+				break;
+		//}
+		//else if (state == 3) {
+			case 3:
+				clear_all_leds();
+				led_data[2] = 4095;          // Turn LED 2 to 100% full scale
+				break;
+		//}
+		}
+		send_tlc_data();                 // Transmit array profile to physical chips
+	}
+}
+
+int main(void) {
+	spi_init();                          // Initialize SPI buses
+	timer1_init();                       // Start background GSCLK engine
+	adc_init();                          // Start ADC system
+	timer3_init();                       // Run 50ms step clock
+	usart_init(MYUBRR);                  // Open serial communication port at 9600 baud
+	
+	sei();                               // Globally enable interrupts
+
+	char tx_buffer[64];                  // Local string buffer memory for text building
+
+	while (1) {
+		if (data_ready) {                // Check if background timer completed a sample
+			data_ready = 0;              // Reset flag immediately to catch next pass
+			
+			// Format text showing current running State, A0 value, and A1 value
+			sprintf(tx_buffer, "%d,%lu,%u,%u\r\n", state, adc_a0, adc_a1);
+			usart_print_string(tx_buffer); // Push text string out over USB port
+		}
+	}
+}
