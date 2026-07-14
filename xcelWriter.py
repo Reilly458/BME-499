@@ -19,8 +19,8 @@ def process_csv(df, excel_file):
 
         chart.add_series({
             'name': 'AmbientDC',
-            'categories': ['Results', 1, 0, len(df)-1, 0],
-            'values': ['Results', 1, 1, len(df)-1, 1],
+            'categories': ['Results', 2, 0, len(df)-1, 0],
+            'values': ['Results', 2, 1, len(df)-1, 1],
             'line': {'color': 'green'},
         })
 
