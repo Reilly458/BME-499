@@ -1,44 +1,135 @@
+#include "SparkFun_Tlc5940.h"
 
-#define F_CPU 16000000UL          // Define CPU clock speed as 16MHz
-#include <avr/io.h>               // Include standard AVR I/O register definitions
-#include <avr/interrupt.h>        // Include AVR interrupt macros
-#include <stdio.h>                // Include stdio for sprintf formatting
-
-#define BAUD 9600                 // Define desired baud rate for serial communication
-#define MYUBRR ((F_CPU / (BAUD * 16UL)) - 1) // Calculate UBRR value for 9600 baud
+//TLC5940 LED Driver Setup
+#define DEOXY_740NM  1  //blue
+#define OXY_850NM  2     //red
+#define BRIGHT740  4095
+#define BRIGHT850  4095 // decrease to 3276 to balance brightness
+#define CAL_NUM 5       // number of readings to take for calibration
 
 // Control Pins
-#define XLAT_PIN  PB0             // Define XLAT (Latch) pin on Port B pin 0
-#define BLANK_PIN PB4             // Define BLANK (PWM reset) pin on Port B pin 4
+//#define XLAT_PIN  PB5             // Define XLAT (Latch) pin on Port B pin 5
+//#define BLANK_PIN PB6             // Define BLANK (PWM reset) pin on Port B pin 6
 
 // Global Variables
-uint16_t led_data = {0};      // Array holding 12-bit brightness values for TLC channels
-volatile uint16_t adc_a0 = 0;     // Stores the latest A0 analog reading
-volatile uint16_t adc_a1 = 0;     // Stores the latest A1 analog reading
-volatile uint16_t adc_a2 = 0;     // Stores the latest A2 analog reading
-volatile uint16_t adc_a3 = 0;     // Stores the latest A3 analog reading
+//uint16_t led_data[16] = {0};      // Array holding 12-bit brightness values for TLC channels
+volatile uint16_t ambientDC = 0;
+volatile uint16_t ambientAC = 0;
+volatile uint16_t adc_a0 = 0;     // Stores the latest raw A0 analog reading 740 ambient DC/ I active
+volatile uint16_t adc_a1 = 0;     // Stores the latest raw A1 analog reading 850 ambient DC/ I active
+volatile uint16_t adc_a2 = 0;     // Stores the latest raw A2 analog reading 740 ambient AC / livePulseAC
+volatile uint16_t adc_a3 = 0;     // Stores the latest raw A3 analog reading 850 ambient AC / livePulseAC
 volatile uint8_t state = 0;       // Tracking variable for the 4 LED states (0 to 3)
 volatile uint8_t time_ticks = 0;  // Counter incremented every 50ms for timing
 volatile uint8_t data_ready = 0;  // Flag set to 1 when a new ADC sample is taken
 
-void usart_init(unsigned int ubrr) {
-	UBRR0H = (unsigned char)(ubrr >> 8); // Load upper 8 bits of baud rate prescaler
-	UBRR0L = (unsigned char)ubrr;        // Load lower 8 bits of baud rate prescaler
-	UCSR0B = (1 << TXEN0);               // Enable Transmitter peripheral on USART0
-	UCSR0C = (1 << UCSZ01) | (1 << UCSZ00); // Set frame format: 8 data bits, 1 stop bit
+//Timing
+const int flash_ms = 1000;    //15ms ~ 16Hz sweep rate
+
+float I_base740 = 0.0;
+float I_base850 = 0.0;
+volatile float active740 = 0.0;     // Stores the latest averaged A0 analog reading 740 ambient DC/ I active
+volatile float active850 = 0.0;     // Stores the latest averaged A1 analog reading 850 ambient DC/ I active
+volatile float live740 = 0.0;       // Stores the latest averaged A2 analog reading 740 ambient AC / livePulseAC
+volatile float live850 = 0.0;       // Stores the latest averaged A3 analog reading 850 ambient AC / livePulseAC
+
+void updateLED1(int TLC_channel, int brightness){
+  Tlc.clear();
+  Tlc.set(TLC_channel, brightness);
+  Tlc.update();
 }
 
-void usart_transmit(unsigned char data) {
-	while (!(UCSR0A & (1 << UDRE0)));    // Wait until the transmit buffer is empty and ready
-	UDR0 = data;                         // Put data into buffer, physically sending the byte
+void LEDsoff(){
+  Tlc.clear();
+  Tlc.update();
 }
 
-void usart_print_string(const char* str) {
-	while (*str) {                       // Loop through the string array character by character
-		usart_transmit(*str++);          // Transmit character and advance pointer
-	}
+void getBaseline(int TLC_channel, int brightness){
+  LEDsoff();
+  delay(2);
+  int base = 0;
+  ambientDC = (adc_read(0) + adc_read(1)) / 2;    //Measure dark ambient light with both LEDs off, raw ADC value
+  ambientAC = (adc_read(2) + adc_read(3)) / 2;
+  //Serial.print("Ambient DC = ");
+  //Serial.println(ambientDC);
+  updateLED1(TLC_channel, brightness);    //Turn on 1 LED, 15ms delay for opamp settling
+  if(TLC_channel == 1){ 
+    Serial.print("740nm Baseline readings: ");
+    for(int i = 0; i < CAL_NUM; i++){
+      base = adc_read(0) - ambientDC;   //Read LED on signal and subtract off dark ADC value
+      I_base740 += base;    
+      Serial.print(base);
+      Serial.print(", ");
+      delay(400);
+    }
+    I_base740 /= CAL_NUM;
+    Serial.println(I_base740);
+  }
+  else{
+    Serial.print("850nm Baseline readings: ");
+    for(int i = 0; i < CAL_NUM; i++){
+      base = adc_read(1) - ambientDC;   //Read LED on signal and subtract off dark ADC value
+      I_base850 += base;    
+      Serial.print(base);
+      Serial.print(", ");
+      delay(400);
+    }
+    I_base850 /= CAL_NUM;
+    Serial.println(I_base850);  
+  }
+  LEDsoff();
 }
 
+void calibrate(){
+  Serial.println("Calibrating. Hold Probe still.");
+  for(int i = 5; i >= 0; i--){
+    Serial.println(i);
+    delay(1000);   
+  }
+  Serial.println("Getting baseline dark current values for each LED.");
+  getBaseline(DEOXY_740NM, BRIGHT740);
+  delay(1000);
+  getBaseline(OXY_850NM, BRIGHT850);
+  // Safety check to ensure the probe isn't reading open air/0 light
+  if (I_base740 < 1.0 || I_base850 < 1.0) {
+    Serial.println("ERROR: Low baseline signal detected! Check probe placement and restart Arduino.");
+    while(1); // Halt execution
+  }
+  Serial.println("Calibration Complete.");
+  delay(1000);
+  Serial.println("Time, I Active 740, Live Pulse 740, I Active 850, Live Pulse 850, mBLL [mMoles], Ambient DC, Ambient AC, I Base 740, I Base 850");
+  Serial.print(millis());
+  Serial.print(", ");
+  Serial.print("0, 0, 0, 0, 0, ");
+  Serial.print(ambientDC);
+  Serial.print(", ");
+  Serial.print(ambientAC);
+  Serial.print(", ");
+  Serial.print(I_base740);
+  Serial.print(", ");
+  Serial.println(I_base850);
+}
+
+void printSample(/*int ambientDC, int ambientAC, */float active740, int lpulse740, float active850, int lpulse850/*, float mBLL*/){
+  Serial.print(millis());
+  Serial.print(",");
+ /* Serial.print(ambientDC);
+  Serial.print(",");
+  Serial.print(ambientAC);
+  Serial.print(",");*/
+  Serial.print(active740);
+  Serial.print(",");
+  Serial.print(lpulse740);
+  Serial.print(",");
+  Serial.print(active850);
+  Serial.print(",");
+  Serial.print(lpulse850);
+ // Serial.print(",");
+ // Serial.println(mBLL);
+  
+}
+
+/*
 void spi_init(void) {
 	DDRB |= (1 << DDB2) | (1 << DDB1) | (1 << XLAT_PIN) | (1 << BLANK_PIN); // Set SPI pins as output
 	DDRB |= (1 << DDB0);                 // Keep SS pin as output to lock Master Mode
@@ -69,7 +160,7 @@ void timer1_init(void) {
 	TCCR1A = (1 << COM1A0);              // Toggle OC1A on compare match
 	TCCR1B = (1 << WGM12) | (1 << CS10); // Set CTC mode, no prescaler
 	OCR1A = 3;                           // Broadcast background 2MHz clock signal
-}
+}*/
 
 void adc_init(void) {
 	 /*
@@ -88,8 +179,7 @@ void adc_init(void) {
 	MUX0 = 0
 	*/
 	ADMUX = (1 << REFS0);                // Set AVCC (5V) as reference voltage
-	ADCSRA - ADC Control and Status Register A
-	/*
+	/*ADCSRA - ADC Control and Status Register A
 	bit          7           6            5          4          3            2           1           0
 	name        ADEN        ADSC        ADATE       ADIF       ADIE        ADPS2       ADPS1       ADPS0
 	set to       1           0            0          0          0            1           1           1	
@@ -165,11 +255,11 @@ void timer3_init(void) {
 	TIMSK3 |= (1 << OCIE3A);             // Enable Timer 3 match interrupt
 }
 
-void clear_all_leds(void) {
+/*void clear_all_leds(void) {
 	for (int i = 0; i < 16; i++) {
 		led_data[i] = 0;                 // Set channel brightness to zero
 	}
-}
+}*/
 
 // Background worker running every 50ms
 ISR(TIMER3_COMPA_vect) {
@@ -178,15 +268,17 @@ ISR(TIMER3_COMPA_vect) {
 	// Read appropriate channels based on matching active lighting phase
 	if (state == 0 || state == 2) {
 		adc_a0 = adc_read(0);            // Read A0 (Ambient DC Check) 
+    adc_a1 = adc_read(1);
 		adc_a2 = adc_read(2);            // Read A2 (Ambient AC Check)
+    adc_a3 = adc_read(3);
 	}
 	else if (state == 1) {
-		adc_a0 = adc_read(0);            // Read A0 (LED 1 Active DC) 740nm
-		adc_a2 = adc_read(2);            // Read A1 (LED 1 livePulseAC) 740nm
+		adc_a0 = adc_read(0)-ambientDC;            // Read A0 (LED 1 Active DC) 740nm
+		adc_a2 = adc_read(2)-ambientAC;            // Read A2 (LED 1 livePulseAC) 740nm
 	}
 	else if (state == 3) {
-		adc_a1 = adc_read(1);            // Read A1 (LED 2 Active DC)  850nm
-		adc_a3 - adc_read(3);			 // Read A3 (LED 2 livePulseAC) 850nm
+		adc_a1 = adc_read(1)-ambientDC;            // Read A1 (LED 2 Active DC)  850nm
+		adc_a3 = adc_read(3)-ambientAC;	      		 // Read A3 (LED 2 livePulseAC) 850nm
 	}
 
 	data_ready = 1;                      // Set flag telling main loop new numbers are ready to print
@@ -200,44 +292,62 @@ ISR(TIMER3_COMPA_vect) {
 		//if (state == 0 || state == 2) {
 			case 0:
 			case 2:
-				clear_all_leds();            // Drop both outputs to 0% PWM
+				LEDsoff();            // Drop both outputs to 0% PWM
 				break;
 		//}
 		//else if (state == 1) {
 			case 1:
-				clear_all_leds();
-				led_data[1] = 4095;          // Turn LED 1 to 100% full scale
+				//clear_all_leds();
+				//led_data[1] = 4095;          // Turn LED 1 to 100% full scale
+        updateLED1(DEOXY_740NM, BRIGHT740);
 				break;
 		//}
 		//else if (state == 3) {
 			case 3:
-				clear_all_leds();
-				led_data[2] = 4095;          // Turn LED 2 to 100% full scale
+				//clear_all_leds();
+				//led_data[2] = 4095;          // Turn LED 2 to 100% full scale
+        updateLED1(OXY_850NM, BRIGHT850);
 				break;
 		//}
 		}
-		send_tlc_data();                 // Transmit array profile to physical chips
+		//send_tlc_data();                 // Transmit array profile to physical chips
 	}
 }
 
-int main(void) {
-	spi_init();                          // Initialize SPI buses
-	timer1_init();                       // Start background GSCLK engine
-	adc_init();                          // Start ADC system
+void setup() {
+	//spi_init();                          // Initialize SPI buses
+	//timer1_init();                       // Start background GSCLK engine
+	
+  Serial.begin(9600);
+  pinMode(A0, INPUT);
+  pinMode(A1, INPUT);
+  pinMode(A2, INPUT);
+  pinMode(A3, INPUT);
+  analogReference(DEFAULT);
+  Tlc.init();
+  LEDsoff();
+  adc_init();                          // Start ADC system
+  calibrate();
+  
+ // cli();                               // Block global interrupts during timer setup
 	timer3_init();                       // Run 50ms step clock
-	usart_init(MYUBRR);                  // Open serial communication port at 9600 baud
+	//usart_init(MYUBRR);                  // Open serial communication port at 9600 baud
 	
 	sei();                               // Globally enable interrupts
+}
+	//char tx_buffer[64];                  // Local string buffer memory for text building
+  //sprintf(tx_buffer, "Time, adc0, adc1, adc2, adc3, state\r\n");
+  //usart_print_string(tx_buffer); 
 
-	char tx_buffer[64];                  // Local string buffer memory for text building
-
-	while (1) {
+void loop() {
 		if (data_ready) {                // Check if background timer completed a sample
 			data_ready = 0;              // Reset flag immediately to catch next pass
 			
 			// Format text showing current running State, A0 value, and A1 value
-			sprintf(tx_buffer, "%d,%lu,%u,%u\r\n", state, adc_a0, adc_a1);
-			usart_print_string(tx_buffer); // Push text string out over USB port
+			//sprintf(tx_buffer, "%lu,%u,%u,%u,%u,%d\r\n", (unsigned long)millis(), adc_a0, adc_a1, adc_a2, adc_a3, state);
+			//usart_print_string(tx_buffer); // Push text string out over USB port
+      printSample(adc_a0, adc_a2, adc_a1, adc_a3);
+      Serial.println();
 		}
-	}
+	
 }

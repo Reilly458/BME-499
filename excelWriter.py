@@ -18,24 +18,25 @@ def process_csv(df, excel_file):
         # Range format: [sheet_name, start_row, start_col, end_row, end_col]
 
         chart.add_series({
-            'name': 'AmbientDC',
+            'name': '740nm',
             'categories': ['Results', 2, 0, len(df)-1, 0],
             'values': ['Results', 2, 1, len(df)-1, 1],
             'line': {'color': 'green'},
         })
 
         chart.add_series({
-            'name': 'AmbientAC',
+            'name': '850nm',
             'categories': ['Results', 1, 0, len(df)-1, 0],
             'values': ['Results', 1, 2, len(df)-1, 2],
             'line': {'color': 'red'},
             'y2_axis': 1,
         })
         
-        chart.set_title({'name': 'Ambient Dark Current'})
+        chart.set_title({'name': 'TIA ADC Readings'})
         chart.set_x_axis({'name': 'Time (s)'})
-        chart.set_y_axis({'name': 'Ambient DC ADC'})
-        chart.set_y2_axis({'name': 'Ambient AC ADC'})
+        chart.set_y_axis({'name': 'Active DC ADC'})
+        chart.set_y2_axis({'name': 'Pulse AC ADC'})
+        chart.set_size({"width": 1000, "height": 800})
         worksheet.insert_chart('M2', chart)
 
 
@@ -54,11 +55,13 @@ def process_csv(df, excel_file):
             'line': {'color': 'red'},
 
         })
-        chart.set_title({'name': 'I Active DC Readings'})
+        chart.set_title({'name': 'Voltage Follower ADC Readings'})
         chart.set_x_axis({'name': 'Time (s)'})
         chart.set_y_axis({'name': 'ADC'})
-        worksheet.insert_chart('M18', chart)
+        chart.set_size({"width": 1000, "height": 800})
+        worksheet.insert_chart('M23', chart)
 
+'''
         chart = workbook.add_chart({'type': 'scatter','subtype': 'straight'})
         chart.add_series({
             'name': '740nm',
@@ -78,3 +81,4 @@ def process_csv(df, excel_file):
         chart.set_x_axis({'name': 'Time (s)'})
         chart.set_y_axis({'name': 'ADC'})
         worksheet.insert_chart('M34', chart)
+        '''

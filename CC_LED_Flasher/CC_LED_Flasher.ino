@@ -118,12 +118,16 @@ void setup() {
   Tlc.init();
   LEDsoff();
   calibrate();
-  Serial.println("Time, Ambient DC, Ambient AC, I Active 740, Live Pulse 740, I Active 850, Live Pulse 850, mBLL [mMoles], I Base 740, I Base 850");
+  Serial.println("Time, I Active 740, Live Pulse 740, I Active 850, Live Pulse 850, mBLL [mMoles], Ambient DC, Ambient AC, I Base 740, I Base 850");
   Serial.print(millis());
-  Serial.print(" , ");
-  Serial.print("0, 0, 0, 0, 0, 0, 0, ");
+  Serial.print(", ");
+  Serial.print("0, 0, 0, 0, 0 ");
+  Serial.print(ambientDC);
+  Serial.print(", ");
+  Serial.print(ambientAC);
+  Serial.print(", ");
   Serial.print(I_base740);
-  Serial.print(" , ");
+  Serial.print(", ");
   Serial.println(I_base850);
 }
 
