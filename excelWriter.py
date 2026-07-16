@@ -36,7 +36,7 @@ def process_csv(df, excel_file):
         chart.set_x_axis({'name': 'Time (s)'})
         chart.set_y_axis({'name': 'Active DC ADC'})
         chart.set_y2_axis({'name': 'Pulse AC ADC'})
-        chart.set_size({"width": 1000, "height": 800})
+        chart.set_size({"width": 1000, "height": 600})
         worksheet.insert_chart('M2', chart)
 
 
@@ -51,14 +51,14 @@ def process_csv(df, excel_file):
         chart.add_series({
             'name': '850nm',
             'categories': ['Results', 1, 0, len(df)-1, 0],
-            'values': ['Results', 1, 5, len(df)-1, 5],
+            'values': ['Results', 1, 4, len(df)-1, 4],
             'line': {'color': 'red'},
 
         })
         chart.set_title({'name': 'Voltage Follower ADC Readings'})
         chart.set_x_axis({'name': 'Time (s)'})
         chart.set_y_axis({'name': 'ADC'})
-        chart.set_size({"width": 1000, "height": 800})
+        chart.set_size({"width": 1000, "height": 600})
         worksheet.insert_chart('M23', chart)
 
 '''

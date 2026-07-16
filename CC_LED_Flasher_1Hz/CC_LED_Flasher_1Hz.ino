@@ -5,7 +5,8 @@
 #define OXY_850NM  2     //red
 #define BRIGHT740  4095
 #define BRIGHT850  4095 // decrease to 3276 to balance brightness
-#define CAL_NUM 5       // number of readings to take for calibration
+#define CAL_NUM 20       // number of readings to take for calibration
+#define CAL_DELAY 15   // 300/CAL_NUM, 300 seconds divided by number of readings, 300 chosen since max time led is turn on is 250ms for 1Hz
 
 // Control Pins
 //#define XLAT_PIN  PB5             // Define XLAT (Latch) pin on Port B pin 5
@@ -45,38 +46,59 @@ void LEDsoff(){
 }
 
 void getBaseline(int TLC_channel, int brightness){
-  LEDsoff();
-  delay(2);
+  //LEDsoff();
+  //delay(2);
+  
+  for(int i = 0; i < CAL_NUM; i++){
+    int baseDC = adc_read(0);
+    ambientDC += baseDC;    //Measure dark ambient light with both LEDs off, raw ADC value
+    int baseAC = adc_read(2);
+    ambientAC += baseAC;
+    /*Serial.print("Ambient DC = ");
+    Serial.print(baseDC);
+    Serial.print("  |  Ambient AC = ");
+    Serial.println(baseAC);
+    delay(CAL_DELAY);*/
+  }
+  ambientDC /= CAL_NUM;
+  ambientAC /= CAL_NUM;
+  Serial.print("Ambient DC = ");
+  Serial.print(ambientDC);
+  Serial.print("  |  Ambient AC = ");
+  Serial.println(ambientAC);
+
   int base = 0;
-  ambientDC = (adc_read(0) + adc_read(1)) / 2;    //Measure dark ambient light with both LEDs off, raw ADC value
-  ambientAC = (adc_read(2) + adc_read(3)) / 2;
-  //Serial.print("Ambient DC = ");
-  //Serial.println(ambientDC);
   updateLED1(TLC_channel, brightness);    //Turn on 1 LED, 15ms delay for opamp settling
-  if(TLC_channel == 1){ 
+  delay(25);
+
+  //if(TLC_channel == 1){ 
     Serial.print("740nm Baseline readings: ");
     for(int i = 0; i < CAL_NUM; i++){
       base = adc_read(0) - ambientDC;   //Read LED on signal and subtract off dark ADC value
       I_base740 += base;    
       Serial.print(base);
       Serial.print(", ");
-      delay(400);
+      delay(CAL_DELAY);
     }
     I_base740 /= CAL_NUM;
     Serial.println(I_base740);
-  }
-  else{
+  //}
+   LEDsoff();
+   delay(1000);
+   updateLED1(2, brightness);
+   delay(25);
+  //else{
     Serial.print("850nm Baseline readings: ");
     for(int i = 0; i < CAL_NUM; i++){
       base = adc_read(1) - ambientDC;   //Read LED on signal and subtract off dark ADC value
       I_base850 += base;    
       Serial.print(base);
       Serial.print(", ");
-      delay(400);
+      delay(CAL_DELAY);
     }
     I_base850 /= CAL_NUM;
     Serial.println(I_base850);  
-  }
+  //}
   LEDsoff();
 }
 
@@ -88,8 +110,8 @@ void calibrate(){
   }
   Serial.println("Getting baseline dark current values for each LED.");
   getBaseline(DEOXY_740NM, BRIGHT740);
-  delay(1000);
-  getBaseline(OXY_850NM, BRIGHT850);
+  //delay(1000);
+  //getBaseline(OXY_850NM, BRIGHT850);
   // Safety check to ensure the probe isn't reading open air/0 light
   if (I_base740 < 1.0 || I_base850 < 1.0) {
     Serial.println("ERROR: Low baseline signal detected! Check probe placement and restart Arduino.");
@@ -97,7 +119,7 @@ void calibrate(){
   }
   Serial.println("Calibration Complete.");
   delay(1000);
-  Serial.println("Time, I Active 740, Live Pulse 740, I Active 850, Live Pulse 850, mBLL [mMoles], Ambient DC, Ambient AC, I Base 740, I Base 850");
+  Serial.println("Time, 740 I Active, 850 I Active, 740 Live Pulse, 850 Live Pulse, mBLL [mMoles], Ambient DC, Ambient AC, 740 I Base, 850 I Base");
   Serial.print(millis());
   Serial.print(", ");
   Serial.print("0, 0, 0, 0, 0, ");
@@ -110,7 +132,7 @@ void calibrate(){
   Serial.println(I_base850);
 }
 
-void printSample(/*int ambientDC, int ambientAC, */float active740, int lpulse740, float active850, int lpulse850/*, float mBLL*/){
+void printSample(/*int ambientDC, int ambientAC, */float active740, float active850, int lpulse740,  int lpulse850/*, float mBLL*/){
   Serial.print(millis());
   Serial.print(",");
  /* Serial.print(ambientDC);
@@ -119,9 +141,9 @@ void printSample(/*int ambientDC, int ambientAC, */float active740, int lpulse74
   Serial.print(",");*/
   Serial.print(active740);
   Serial.print(",");
-  Serial.print(lpulse740);
-  Serial.print(",");
   Serial.print(active850);
+  Serial.print(",");
+  Serial.print(lpulse740);
   Serial.print(",");
   Serial.print(lpulse850);
  // Serial.print(",");
@@ -236,7 +258,7 @@ void timer3_init(void) {
 	CS30 = 0
 	*/
 	TCCR3B = (1 << WGM32) | (1 << CS32); // Set CTC mode, prescaler 256
-	OCR3A = 3124;                        // Set threshold for exactly 50ms intervals, Set count limit: (16000000Hz / 256 clock speed) * 0.050 seconds - 1 = 3124 ticks
+	OCR3A = 3124;                        // Set threshold for exactly 50ms intervals, Set count limit: (16000000Hz / 256 clock speed) * 0.020 seconds - 1 = 3124 ticks
 	/*
 	TIMSK3 - Timer/Counter 3 Interrupt Mask Register	
 	bit           7        6        5       4       3       2         1         0
@@ -346,7 +368,7 @@ void loop() {
 			// Format text showing current running State, A0 value, and A1 value
 			//sprintf(tx_buffer, "%lu,%u,%u,%u,%u,%d\r\n", (unsigned long)millis(), adc_a0, adc_a1, adc_a2, adc_a3, state);
 			//usart_print_string(tx_buffer); // Push text string out over USB port
-      printSample(adc_a0, adc_a2, adc_a1, adc_a3);
+      printSample(adc_a0, adc_a1, adc_a2, adc_a3);
       Serial.println();
 		}
 	
