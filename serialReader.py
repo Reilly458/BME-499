@@ -3,6 +3,7 @@ import csv
 import os
 import pandas as pd
 from excelWriter import *
+from datetime import datetime
 
 
 # Match this to your Arduino's serial port (e.g., 'COM3' on Windows or '/dev/ttyUSB0' on Linux)
@@ -11,7 +12,7 @@ BAUD_RATE = 9600
 
 process = False
 csv_file = "data.csv"
-excel_file = "results.xlsx"
+excel_file = "results " + datetime.now().strftime("%Y-%m-%d %H-%M-%S")+".xlsx"
 
 try:
 # Open serial connection
