@@ -23,7 +23,7 @@ try:
         writer = csv.writer(file)
         print("Logging started. Press Ctrl+C to stop.")    
     
-        for _ in range(11):
+        for _ in range(12):
                     print(ser.readline().decode('utf-8').strip())
 
         while True:
@@ -56,4 +56,6 @@ if process:
        df['Time'] = (df['Time']-df['Time'].iloc[0])*0.001
        #df.to_excel(excel_file, sheet_name="Results", index=False)
        process_csv(df, excel_file)
+       print("Processing Complete.")
+       
 
