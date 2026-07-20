@@ -346,7 +346,7 @@ void setup() {
 	//spi_init();                          // Initialize SPI buses
 	//timer1_init();                       // Start background GSCLK engine
 	
-  Serial.begin(9600);
+  Serial.begin(115200);
   pinMode(A0, INPUT);
   pinMode(A1, INPUT);
   pinMode(A2, INPUT);
