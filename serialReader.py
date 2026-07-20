@@ -8,7 +8,7 @@ from datetime import datetime
 
 # Match this to your Arduino's serial port (e.g., 'COM3' on Windows or '/dev/ttyUSB0' on Linux)
 SERIAL_PORT = 'COM5' 
-BAUD_RATE = 9600
+BAUD_RATE = 115200 #9600
 
 process = False
 csv_file = "data.csv"
@@ -25,7 +25,7 @@ try:
         print("Logging started. Press Ctrl+C to stop.")    
     
         for _ in range(12):
-                    print(ser.readline().decode('utf-8').strip())
+            print(ser.readline().decode('utf-8').strip())
 
         while True:
             if ser.in_waiting > 0:
