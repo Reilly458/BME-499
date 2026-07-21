@@ -61,24 +61,25 @@ def process_csv(df, excel_file):
         chart.set_size({"width": 1000, "height": 400})
         worksheet.insert_chart('M23', chart)
 
-'''
+
         chart = workbook.add_chart({'type': 'scatter','subtype': 'straight'})
         chart.add_series({
-            'name': '740nm',
+            'name': 'HbR',
             'categories': ['Results', 1, 0, len(df)-1, 0],
-            'values': ['Results', 1, 4, len(df)-1, 4],
+            'values': ['Results', 1, 5, len(df)-1, 5],
             'line': {'color': 'green'},
         })
 
         chart.add_series({
-            'name': '850nm',
+            'name': 'HbO2',
             'categories': ['Results', 2, 0, len(df)-1, 0],
             'values': ['Results', 2, 6, len(df)-1, 6],
             'line': {'color': 'red'},
 
         })
-        chart.set_title({'name': 'Live AC Readings'})
+        chart.set_title({'name': 'Oygenation Readings'})
         chart.set_x_axis({'name': 'Time (s)'})
         chart.set_y_axis({'name': 'ADC'})
-        worksheet.insert_chart('M34', chart)
-        '''
+        chart.set_size({"width": 1000, "height": 400})
+        worksheet.insert_chart('M44', chart)
+        

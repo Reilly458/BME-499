@@ -4,7 +4,7 @@
 #define DEOXY_740NM  1  //blue
 #define OXY_850NM  2     //red
 #define BRIGHT740  4095
-#define BRIGHT850  4095 // decrease to 3276 to balance brightness
+#define BRIGHT850  100 // decrease to 3276 to balance brightness
 #define CAL_NUM 20       // number of readings to take for calibration
 #define CAL_DELAY 15   // 300/CAL_NUM, 300 seconds divided by number of readings, 300 chosen since max time led is turn on is 250ms for 1Hz
 #define BUTN_OLFACTO 21
@@ -29,12 +29,17 @@ volatile uint8_t data_ready = 0;  // Flag set to 1 when a new ADC sample is take
 //const float L_DPF = r * DPF; 
 //Delta_hbo2 = COD2 - DOD1  // C = 3.5671E-01, D = -2.2734E-03
 //Delta_hhb = AOD2 - BOD1   // A = 4.2018E-01, B = 9.9528E-04
+const float L = 0.4629;    //Average of 740 r = .3979cm and 850 r = .5279cm
 float I_base740 = 0.0;
 float I_base850 = 0.0;
 volatile uint16_t active740 = 0.0;     // Stores the latest averaged A0 analog reading 740 ambient DC/ I active
 volatile uint16_t active850 = 0.0;     // Stores the latest averaged A1 analog reading 850 ambient DC/ I active
 volatile uint16_t live740 = 0.0;       // Stores the latest averaged A2 analog reading 740 ambient AC / livePulseAC
 volatile uint16_t live850 = 0.0;       // Stores the latest averaged A3 analog reading 850 ambient AC / livePulseAC
+float OD1 = 0.0;
+float OD2 = 0.0; 
+float HbR = 0.0;
+float HbO2 = 0.0;
 
 //Button States add pause and stop buttons?
 volatile int olfacto_state = 0;
@@ -119,10 +124,10 @@ void calibrate(){
   }
   Serial.println("Calibration Complete.");
   delay(1000);
-  Serial.println("Time, 740 I Active, 850 I Active, 740 Live Pulse, 850 Live Pulse, mBLL [mMoles], Ambient DC, Ambient AC, 740 I Base, 850 I Base");
+  Serial.println("Time, 740 I Active, 850 I Active, 740 Live Pulse, 850 Live Pulse, HbR, HbO2, Ambient DC, Ambient AC, 740 I Base, 850 I Base");
   Serial.print(millis());
   Serial.print(", ");
-  Serial.print("0, 0, 0, 0, 0, ");
+  Serial.print("0, 0, 0, 0, 0, 0, ");
   Serial.print(ambientDC);
   Serial.print(", ");
   Serial.print(ambientAC);
@@ -132,7 +137,7 @@ void calibrate(){
   Serial.println(I_base850);
 }
 
-void printSample(float active740, float active850, int lpulse740,  int lpulse850/*, float mBLL*/){
+void printSample(float active740, float active850, int lpulse740,  int lpulse850, float HbR, float HbO2){
   Serial.print(millis());
   Serial.print(",");
   Serial.print(active740);
@@ -142,8 +147,10 @@ void printSample(float active740, float active850, int lpulse740,  int lpulse850
   Serial.print(lpulse740);
   Serial.print(",");
   Serial.print(lpulse850);
- // Serial.print(",");
- // Serial.println(mBLL); 
+  Serial.print(",");
+  Serial.print(HbR);
+  Serial.print(",");
+  Serial.println(HbO2); 
 }
 
 void adc_init(void) {
@@ -241,24 +248,39 @@ void timer3_init(void) {
 	TIMSK3 |= (1 << OCIE3A);             // Enable Timer 3 match interrupt
 }
 
+void calculate_mBLL(){
+  OD1 = active740- I_base740;
+  OD2 = active850- I_base850;
+  HbR = (1/L)* ((0.0012* OD1/6)+(-0.0005* OD2/5.5));
+  HbO2 = (1/L) * ((-0.0007* OD1/6)+(0.0012* OD2/5.5));
+}
+
 // Background worker running every 50ms
 ISR(TIMER3_COMPA_vect) {
 	time_ticks++;                        // Increment timeline counter
 	
 	// Read appropriate channels based on matching active lighting phase
 	if (state == 0 || state == 2) {
-		adc_a0 = adc_read(0);            // Read A0 (Ambient DC Check) 
+    adc_a0 = adc_read(0);
+		active740 = adc_read(0);            // Read A0 (Ambient DC Check) 
     adc_a1 = adc_read(1);
-		adc_a2 = adc_read(2);            // Read A2 (Ambient AC Check)
+    active850 = adc_read(1);
+		adc_a2 = adc_read(2);
+    live740 = adc_read(2);            // Read A2 (Ambient AC Check)
     adc_a3 = adc_read(3);
+    live850 = adc_read(3);
 	}
 	else if (state == 1) {
-		adc_a0 = adc_read(0)-ambientDC;            // Read A0 (LED 1 Active DC) 740nm
-		adc_a2 = adc_read(2)-ambientAC;            // Read A2 (LED 1 livePulseAC) 740nm
+		adc_a0 = adc_read(0);
+    active740 = adc_read(0)-ambientDC;          // Read A0 (LED 1 Active DC) 740nm
+		adc_a2 = adc_read(2);
+    live740 = adc_read(2)-ambientAC;            // Read A2 (LED 1 livePulseAC) 740nm
 	}
 	else if (state == 3) {
-		adc_a1 = adc_read(1)-ambientDC;            // Read A1 (LED 2 Active DC)  850nm
-		adc_a3 = adc_read(3)-ambientAC;	      		 // Read A3 (LED 2 livePulseAC) 850nm
+		adc_a1 = adc_read(1);
+    active850 = adc_read(1)-ambientDC;            // Read A1 (LED 2 Active DC)  850nm
+		adc_a3 = adc_read(3);
+    live850 = adc_read(3)-ambientAC;	      		 // Read A3 (LED 2 livePulseAC) 850nm
 	}
 
 	data_ready = 1;                      // Set flag telling main loop new numbers are ready to print
@@ -325,7 +347,8 @@ void loop() {
   }
 	if (data_ready) {              // Check if background timer completed a sample
 		data_ready = 0;              // Reset flag immediately to catch next pass			
-    printSample(adc_a0, adc_a1, adc_a2, adc_a3);
+    calculate_mBLL();
+    printSample(active740, active850, live740, live850, HbR, HbO2);
     Serial.println();
 	}
 }
