@@ -1,4 +1,6 @@
+#include <avr/interrupt.h>
 #include "SparkFun_Tlc5940.h"
+
 
 //TLC5940 LED Driver Setup
 #define DEOXY_740NM  1  //blue
@@ -7,6 +9,10 @@
 #define BRIGHT850  4095 // decrease to 3276 to balance brightness
 #define CAL_NUM 20       // number of readings to take for calibration
 #define CAL_DELAY 15   // 300/CAL_NUM, 300 seconds divided by number of readings, 300 chosen since max time led is turn on is 250ms for 1Hz
+#define BUTN_OLFACTO 21
+#define BUTN_THERAPY 20
+#define OLFACTO 34      // Pseudo olfactometer mode
+#define THERAPY 35      // Psesudo therapy mode
 
 // Control Pins
 //#define XLAT_PIN  PB5             // Define XLAT (Latch) pin on Port B pin 5
@@ -39,6 +45,9 @@ volatile uint16_t active740 = 0.0;     // Stores the latest averaged A0 analog r
 volatile uint16_t active850 = 0.0;     // Stores the latest averaged A1 analog reading 850 ambient DC/ I active
 volatile uint16_t live740 = 0.0;       // Stores the latest averaged A2 analog reading 740 ambient AC / livePulseAC
 volatile uint16_t live850 = 0.0;       // Stores the latest averaged A3 analog reading 850 ambient AC / livePulseAC
+
+volatile int olfacto_state = 0;
+volatile int therapy_state = 0;
 
 void updateLED1(int TLC_channel, int brightness){
   Tlc.clear();
@@ -342,6 +351,14 @@ ISR(TIMER3_COMPA_vect) {
 	}
 }
 
+ISR(INT0_vect){
+  olfacto_state = 1;
+}
+
+ISR(INT1_vect){
+  therapy_state = 1;
+}
+
 void setup() {
 	//spi_init();                          // Initialize SPI buses
 	//timer1_init();                       // Start background GSCLK engine
@@ -351,14 +368,22 @@ void setup() {
   pinMode(A1, INPUT);
   pinMode(A2, INPUT);
   pinMode(A3, INPUT);
+  pinMode(BUTN_OLFACTO, INPUT);
+  pinMode(BUTN_THERAPY, INPUT);
+  pinMode(OLFACTO, OUTPUT);
+  pinMode(THERAPY, OUTPUT);
   analogReference(DEFAULT);
   Tlc.init();
   LEDsoff();
   adc_init();                          // Start ADC system
   calibrate();
-  
+  timer3_init();                       // Run 50ms step clock
  // cli();                               // Block global interrupts during timer setup
-	timer3_init();                       // Run 50ms step clock
+  
+  EIFR = (1 << INTF1) | (1 << INTF0);   // Clear any ghost flags thrown during the calibration delays
+  EICRA |= (1 << ISC11) | (1 << ISC10) | (1 << ISC01) | (1 << ISC00);     // Set INT0 and INT1 to trigger on rising edge
+  EIMSK |= (1 << INT1) | (1 << INT0);   // Enable INT0 and INT1 interupts 
+  
 	//usart_init(MYUBRR);                  // Open serial communication port at 9600 baud
 	
 	sei();                               // Globally enable interrupts
@@ -368,14 +393,22 @@ void setup() {
   //usart_print_string(tx_buffer); 
 
 void loop() {
-		if (data_ready) {                // Check if background timer completed a sample
-			data_ready = 0;              // Reset flag immediately to catch next pass
+  if(olfacto_state){
+    digitalWrite(OLFACTO, !digitalRead(OLFACTO));
+    olfacto_state = 0;
+  }
+  if(therapy_state){
+    digitalWrite(THERAPY, !digitalRead(THERAPY));
+    therapy_state = 0;
+  }
+	if (data_ready) {                // Check if background timer completed a sample
+		data_ready = 0;              // Reset flag immediately to catch next pass
 			
 			// Format text showing current running State, A0 value, and A1 value
 			//sprintf(tx_buffer, "%lu,%u,%u,%u,%u,%d\r\n", (unsigned long)millis(), adc_a0, adc_a1, adc_a2, adc_a3, state);
 			//usart_print_string(tx_buffer); // Push text string out over USB port
-      printSample(adc_a0, adc_a1, adc_a2, adc_a3);
-      Serial.println();
-		}
+    printSample(adc_a0, adc_a1, adc_a2, adc_a3);
+    Serial.println();
+	}
 	
 }
