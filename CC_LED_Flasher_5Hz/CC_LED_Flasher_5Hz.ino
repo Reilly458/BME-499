@@ -7,6 +7,10 @@
 #define BRIGHT850  4095 // decrease to 3276 to balance brightness
 #define CAL_NUM 20       // number of readings to take for calibration
 #define CAL_DELAY 15   // 300/CAL_NUM, 300 seconds divided by number of readings, 300 chosen since max time led is turn on is 250ms for 1Hz
+#define BUTN_OLFACTO 21
+#define BUTN_THERAPY 20
+#define OLFACTO 34      // Pseudo olfactometer mode
+#define THERAPY 35      // Psesudo therapy mode
 
 // Global Variables
 volatile uint16_t ambientDC = 0;
@@ -31,6 +35,10 @@ volatile uint16_t active740 = 0.0;     // Stores the latest averaged A0 analog r
 volatile uint16_t active850 = 0.0;     // Stores the latest averaged A1 analog reading 850 ambient DC/ I active
 volatile uint16_t live740 = 0.0;       // Stores the latest averaged A2 analog reading 740 ambient AC / livePulseAC
 volatile uint16_t live850 = 0.0;       // Stores the latest averaged A3 analog reading 850 ambient AC / livePulseAC
+
+//Button States add pause and stop buttons?
+volatile int olfacto_state = 0;
+volatile int therapy_state = 0;
 
 void updateLED1(int TLC_channel, int brightness){
   Tlc.clear();
@@ -274,22 +282,47 @@ ISR(TIMER3_COMPA_vect) {
 	}
 }
 
+//Olfactometer mode button
+ISR(INT0_vect){
+  olfacto_state = 1;
+}
+
+//Therapy mode button
+ISR(INT1_vect){
+  therapy_state = 1;
+}
+
 void setup() {
   Serial.begin(115200);
   pinMode(A0, INPUT);
   pinMode(A1, INPUT);
   pinMode(A2, INPUT);
   pinMode(A3, INPUT);
+  pinMode(BUTN_OLFACTO, INPUT);
+  pinMode(BUTN_THERAPY, INPUT);
+  pinMode(OLFACTO, OUTPUT);
+  pinMode(THERAPY, OUTPUT);
   analogReference(DEFAULT);
   Tlc.init();
   LEDsoff();
   adc_init();                          // Start ADC system
   calibrate();
-  timer3_init();                       // Run 50ms step clock
+  timer3_init();                       // Run 10ms step clock
+  EIFR = (1 << INTF1) | (1 << INTF0);   // Clear any ghost flags thrown during the calibration delays
+  EICRA |= (1 << ISC11) | (1 << ISC10) | (1 << ISC01) | (1 << ISC00);     // Set INT0 and INT1 to trigger on rising edge
+  EIMSK |= (1 << INT1) | (1 << INT0);   // Enable INT0 and INT1 interupts 
 	sei();                               // Globally enable interrupts
 }
 
 void loop() {
+  if(olfacto_state){
+    digitalWrite(OLFACTO, !digitalRead(OLFACTO));
+    olfacto_state = 0;
+  }
+  if(therapy_state){
+    digitalWrite(THERAPY, !digitalRead(THERAPY));
+    therapy_state = 0;
+  }
 	if (data_ready) {              // Check if background timer completed a sample
 		data_ready = 0;              // Reset flag immediately to catch next pass			
     printSample(adc_a0, adc_a1, adc_a2, adc_a3);
