@@ -33,6 +33,9 @@ try:
                 # Read a line of data from the Arduino
                 line = ser.readline().decode('utf-8').strip()
                 if line:
+                    if "!" in line:
+                        print(data_row)
+                        continue 
                     # Split the comma-separated string into a list
                     data_row = line.split(",") 
                     print(data_row)
@@ -54,7 +57,7 @@ if process:
 
     if os.path.exists(csv_file) and os.path.getsize(csv_file) > 0:
        df = pd.read_csv(csv_file)
-       df['Time'] = (df['Time']-df['Time'].iloc[0])*0.001
+       df['Time'] = (df['Time'].iloc[:-1]-df['Time'].iloc[0])*0.001
        #df.to_excel(excel_file, sheet_name="Results", index=False)
        process_csv(df, excel_file)
        print("Processing Complete.")

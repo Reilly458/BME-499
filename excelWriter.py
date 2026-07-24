@@ -29,13 +29,13 @@ def process_csv(df, excel_file):
             'categories': ['Results', 2, 0, len(df)-1, 0],
             'values': ['Results', 2, 2, len(df)-1, 2],
             'line': {'color': 'red'},
-            'y2_axis': 1,
+            #'y2_axis': 1,
         })
         
         chart.set_title({'name': 'TIA ADC Readings'})
         chart.set_x_axis({'name': 'Time (s)'})
         chart.set_y_axis({'name': 'Active DC ADC'})
-        chart.set_y2_axis({'name': 'Pulse AC ADC'})
+        #chart.set_y2_axis({'name': 'Pulse AC ADC'})
         chart.set_size({"width": 1000, "height": 400})
         worksheet.insert_chart('M2', chart)
 

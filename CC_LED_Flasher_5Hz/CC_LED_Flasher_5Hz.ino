@@ -4,13 +4,17 @@
 #define DEOXY_740NM  1  //blue
 #define OXY_850NM  2     //red
 #define BRIGHT740  4095
-#define BRIGHT850  100 // decrease to 3276 to balance brightness
-#define CAL_NUM 20       // number of readings to take for calibration
-#define CAL_DELAY 15   // 300/CAL_NUM, 300 seconds divided by number of readings, 300 chosen since max time led is turn on is 250ms for 1Hz
+#define BRIGHT850  4095 // decrease to 3276 to balance brightness
+#define CAL_NUM 6       // number of readings to take for calibration
+#define CAL_DELAY 10   // 60/CAL_NUM, 60 seconds divided by number of readings, 60 chosen since max time led is turn on is 50ms for 5Hz
 #define BUTN_OLFACTO 21
 #define BUTN_THERAPY 20
 #define OLFACTO 34      // Pseudo olfactometer mode
 #define THERAPY 35      // Psesudo therapy mode
+#define BUTN_STOP 18
+#define BUTN_PAUSE 19
+#define STOP 33
+#define PAUSE 32
 
 // Global Variables
 volatile uint16_t ambientDC = 0;
@@ -44,6 +48,8 @@ float HbO2 = 0.0;
 //Button States add pause and stop buttons?
 volatile int olfacto_state = 0;
 volatile int therapy_state = 0;
+volatile int stopped = 0;
+volatile int running = 1;
 
 void updateLED1(int TLC_channel, int brightness){
   Tlc.clear();
@@ -76,36 +82,48 @@ void getBaseline(int TLC_channel, int brightness){
   Serial.println(ambientAC);
 
   int base = 0;
+  int temp[CAL_NUM];
   updateLED1(TLC_channel, brightness);    //Turn on 1 LED, 15ms delay for opamp settling
-  delay(25);
+  delay(10);
 
   Serial.print("740nm Baseline readings: ");
   for(int i = 0; i < CAL_NUM; i++){
     base = adc_read(0) - ambientDC;   //Read LED on signal and subtract off dark ADC value
+    temp[i] = base;
     I_base740 += base;    
-    Serial.print(base);
-    Serial.print(", ");
+    //Serial.print(base);
+    //Serial.print(", ");
     delay(CAL_DELAY);
   }
   I_base740 /= CAL_NUM;
+  for(int i = 0; i < CAL_NUM; i++){
+    Serial.print(temp[i]);
+    Serial.print(", ");
+  }
   Serial.println(I_base740);
 
   LEDsoff();
-  delay(1000);
+  delay(50);
 
   updateLED1(2, brightness);
-  delay(25);
+  delay(10);
   Serial.print("850nm Baseline readings: ");
   for(int i = 0; i < CAL_NUM; i++){
     base = adc_read(1) - ambientDC;   //Read LED on signal and subtract off dark ADC value
+    temp[i] = base;
     I_base850 += base;    
-    Serial.print(base);
-    Serial.print(", ");
+    //Serial.print(base);
+    //Serial.print(", ");
     delay(CAL_DELAY);
   }
   I_base850 /= CAL_NUM;
+  for(int i = 0; i < CAL_NUM; i++){
+    Serial.print(temp[i]);
+    Serial.print(", ");
+  }
   Serial.println(I_base850);  
   LEDsoff();
+  delay(5000);
 }
 
 void calibrate(){
@@ -257,6 +275,9 @@ void calculate_mBLL(){
 
 // Background worker running every 50ms
 ISR(TIMER3_COMPA_vect) {
+  if(!running){
+    return;
+  }
 	time_ticks++;                        // Increment timeline counter
 	
 	// Read appropriate channels based on matching active lighting phase
@@ -314,6 +335,18 @@ ISR(INT1_vect){
   therapy_state = 1;
 }
 
+//Pause/resume program
+ISR(INT2_vect){
+  running = !running;
+  EIFR = (1 << INTF2);
+}
+
+//Stop program
+ISR(INT3_vect){
+  stopped = 1;
+  EIFR = (1 << INTF3);
+}
+
 void setup() {
   Serial.begin(115200);
   pinMode(A0, INPUT);
@@ -324,19 +357,46 @@ void setup() {
   pinMode(BUTN_THERAPY, INPUT);
   pinMode(OLFACTO, OUTPUT);
   pinMode(THERAPY, OUTPUT);
+  pinMode(BUTN_STOP, INPUT);
+  pinMode(BUTN_PAUSE, INPUT);
+  pinMode(STOP, OUTPUT);
+  pinMode(PAUSE, OUTPUT);
   analogReference(DEFAULT);
   Tlc.init();
   LEDsoff();
   adc_init();                          // Start ADC system
   calibrate();
   timer3_init();                       // Run 10ms step clock
-  EIFR = (1 << INTF1) | (1 << INTF0);   // Clear any ghost flags thrown during the calibration delays
-  EICRA |= (1 << ISC11) | (1 << ISC10) | (1 << ISC01) | (1 << ISC00);     // Set INT0 and INT1 to trigger on rising edge
-  EIMSK |= (1 << INT1) | (1 << INT0);   // Enable INT0 and INT1 interupts 
+  EIFR = (1 << INTF3) | (1 << INTF2) | (1 << INTF1) | (1 << INTF0);   // Clear any ghost flags thrown during the calibration delays
+  EICRA |= (1 << ISC31) | (1 << ISC30) | (1 << ISC21) | (1 << ISC20) | (1 << ISC11) | (1 << ISC10) | (1 << ISC01) | (1 << ISC00);     // Set INT0 and INT1 to trigger on rising edge
+  EIMSK |= (1 << INT3) | (1 << INT2) | (1 << INT1) | (1 << INT0);   // Enable INT0 and INT1 interupts 
 	sei();                               // Globally enable interrupts
 }
 
 void loop() {
+  if(stopped){
+    TCCR3B &= ~((1 << CS32) | (1 << CS31) | (1 << CS30));   //Disable timer3 by clearing clock
+    digitalWrite(STOP, HIGH);
+    digitalWrite(OLFACTO, LOW);
+    digitalWrite(THERAPY, LOW);
+    digitalWrite(PAUSE, LOW);
+    LEDsoff();
+    Serial.println("Program Stopped!");
+    while(1);
+  }
+
+  if(!running){
+    LEDsoff();
+    digitalWrite(32, HIGH);
+    olfacto_state = 0;
+    therapy_state = 0;
+    //Serial.println("System Paused.");
+    delay(200);
+    return;
+  }
+
+  digitalWrite(32, LOW);
+
   if(olfacto_state){
     digitalWrite(OLFACTO, !digitalRead(OLFACTO));
     olfacto_state = 0;
@@ -349,6 +409,6 @@ void loop() {
 		data_ready = 0;              // Reset flag immediately to catch next pass			
     calculate_mBLL();
     printSample(active740, active850, live740, live850, HbR, HbO2);
-    Serial.println();
+    //Serial.println();
 	}
 }
