@@ -10,7 +10,9 @@ def process_csv(df, excel_file):
         df.to_excel(writer, sheet_name='Results', index=False)
         workbook  = writer.book
         worksheet = writer.sheets['Results']
-
+        set_width = len(df) * 2.5
+        max_x = df['Time'].iloc[-1]
+        y_min = round(df[['HbO2', 'HbR']].min().min() *2)/2
 
 
         chart = workbook.add_chart({'type': 'scatter','subtype': 'straight'})
@@ -33,10 +35,10 @@ def process_csv(df, excel_file):
         })
         
         chart.set_title({'name': 'TIA ADC Readings'})
-        chart.set_x_axis({'name': 'Time (s)'})
+        chart.set_x_axis({'name': 'Time (s)', 'max': max_x, 'major_unit': 0.5})
         chart.set_y_axis({'name': 'Active DC ADC'})
         #chart.set_y2_axis({'name': 'Pulse AC ADC'})
-        chart.set_size({"width": 1000, "height": 400})
+        chart.set_size({"width": set_width, "height": 400})
         worksheet.insert_chart('M2', chart)
 
 
@@ -55,12 +57,12 @@ def process_csv(df, excel_file):
             'line': {'color': 'red'},
 
         })
-        chart.set_title({'name': 'Voltage Follower ADC Readings'})
-        chart.set_x_axis({'name': 'Time (s)'})
-        chart.set_y_axis({'name': 'ADC'})
-        chart.set_size({"width": 1000, "height": 400})
+        chart.set_title({'name': 'TIA Voltage Readings'})
+        chart.set_x_axis({'name': 'Time (s)','max': max_x, 'major_unit': 0.5})
+        chart.set_y_axis({'name': 'Voltage [V]'})
+        chart.set_size({"width": set_width, "height": 400})
         worksheet.insert_chart('M23', chart)
-
+        
 
         chart = workbook.add_chart({'type': 'scatter','subtype': 'straight'})
         chart.add_series({
@@ -78,8 +80,8 @@ def process_csv(df, excel_file):
 
         })
         chart.set_title({'name': 'Oygenation Readings'})
-        chart.set_x_axis({'name': 'Time (s)'})
-        chart.set_y_axis({'name': 'ADC'})
-        chart.set_size({"width": 1000, "height": 400})
+        chart.set_x_axis({'name': 'Time (s)', 'max': max_x, 'major_unit': 0.5})
+        chart.set_y_axis({'name': 'ADC', 'crossing': y_min})
+        chart.set_size({"width": set_width, "height": 400})
         worksheet.insert_chart('M44', chart)
         
