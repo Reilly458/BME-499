@@ -81,7 +81,7 @@ def process_csv(df, excel_file):
         })
         chart.set_title({'name': 'Oygenation Readings'})
         chart.set_x_axis({'name': 'Time (s)', 'max': max_x, 'major_unit': 0.5})
-        chart.set_y_axis({'name': 'ADC', 'crossing': y_min})
+        chart.set_y_axis({'name': 'Concentration Change [Moles]', 'crossing': y_min})
         chart.set_size({"width": set_width, "height": 400})
         worksheet.insert_chart('M44', chart)
         
