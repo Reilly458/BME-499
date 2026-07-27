@@ -1,8 +1,9 @@
 #include "SparkFun_Tlc5940.h"
 
 //TLC5940 LED Driver Setup
-#define DEOXY_740NM  1  //blue
-#define OXY_850NM  2     //red
+#define DEOXY_740NM  1  
+#define OXY_850NM  2    
+#define THERA_660NM 3    
 #define BRIGHT740  4095
 #define BRIGHT850  4095 // decrease to 3276 to balance brightness
 #define CAL_NUM 6       // number of readings to take for calibration
@@ -15,14 +16,14 @@
 #define BUTN_PAUSE 19
 #define STOP 33
 #define PAUSE 32
+#define RED 31
+#define BLUE 30
 
 // Global Variables
 volatile uint16_t ambientDC = 0;
 volatile uint16_t ambientAC = 0;
 volatile uint16_t adc_a0 = 0;     // Stores the latest raw A0 analog reading 740 ambient DC/ I active
 volatile uint16_t adc_a1 = 0;     // Stores the latest raw A1 analog reading 850 ambient DC/ I active
-volatile uint16_t adc_a2 = 0;     // Stores the latest raw A2 analog reading 740 ambient AC / livePulseAC
-volatile uint16_t adc_a3 = 0;     // Stores the latest raw A3 analog reading 850 ambient AC / livePulseAC
 volatile uint8_t state = 0;       // Tracking variable for the 4 LED states (0 to 3)
 volatile uint8_t time_ticks = 0;  // Counter incremented every 50ms for timing
 volatile uint8_t data_ready = 0;  // Flag set to 1 when a new ADC sample is taken
@@ -38,12 +39,12 @@ float I_base740 = 0.0;
 float I_base850 = 0.0;
 volatile uint16_t active740 = 0.0;     // Stores the latest averaged A0 analog reading 740 ambient DC/ I active
 volatile uint16_t active850 = 0.0;     // Stores the latest averaged A1 analog reading 850 ambient DC/ I active
-volatile uint16_t live740 = 0.0;       // Stores the latest averaged A2 analog reading 740 ambient AC / livePulseAC
-volatile uint16_t live850 = 0.0;       // Stores the latest averaged A3 analog reading 850 ambient AC / livePulseAC
 float OD1 = 0.0;
 float OD2 = 0.0; 
 float HbR = 0.0;
 float HbO2 = 0.0;
+float last_HbR = 0.0;
+float last_HbO2 = 0.0;
 
 //Button States add pause and stop buttons?
 volatile int olfacto_state = 0;
@@ -267,16 +268,46 @@ void timer3_init(void) {
 void calculate_mBLL(){
   OD1 = active740- I_base740;
   OD2 = active850- I_base850;
-  HbR = (1/L)* ((0.0012* OD1/6)+(-0.0005* OD2/5.5));
+  HbR = (1/L)* ((0.0012* OD1/6)+(-0.0005* OD2/5.5));    //L = 0.4629
   HbO2 = (1/L) * ((-0.0007* OD1/6)+(0.0012* OD2/5.5));
+  if(HbR > 0){
+    last_HbR = HbR;
+  }
+  if(HbO2 > 0){
+    last_HbO2 = HbO2;
+  }
+
+  if(HbR > last_HbO2 ){
+    digitalWrite(BLUE, HIGH);
+    digitalWrite(RED, LOW);
+  }
+  else if(HbO2 > last_HbR){
+    digitalWrite(RED, HIGH);
+    digitalWrite(BLUE, LOW);
+  }
+  else if(HbR == HbO2){
+    digitalWrite(RED, HIGH);
+    digitalWrite(BLUE, HIGH);
+  }
 }
 
-// Background worker running every 50ms
+// Background worker running every 10ms
 ISR(TIMER3_COMPA_vect) {
   if(!running){
     return;
   }
-	time_ticks++;                        // Increment timeline counter
+
+  time_ticks++;                        // Increment timeline counter
+
+  if(therapy_state){
+    if ((time_ticks % 2) == 1){
+      LEDsoff();
+    }
+    if((time_ticks % 2) == 0){
+      updateLED1(THERA_660NM,BRIGHT740);
+    }
+    return;
+  }
 	
 	// Read appropriate channels based on matching active lighting phase
 	if (state == 0 || state == 2) {
@@ -322,7 +353,7 @@ ISR(INT0_vect){
 
 //Therapy mode button
 ISR(INT1_vect){
-  therapy_state = 1;
+  therapy_state = !therapy_state;
 }
 
 //Pause/resume program
@@ -351,6 +382,8 @@ void setup() {
   pinMode(BUTN_PAUSE, INPUT);
   pinMode(STOP, OUTPUT);
   pinMode(PAUSE, OUTPUT);
+  pinMode(RED, OUTPUT);
+  pinMode(BLUE, OUTPUT);
   analogReference(DEFAULT);
   Tlc.init();
   LEDsoff();
@@ -370,6 +403,8 @@ void loop() {
     digitalWrite(OLFACTO, LOW);
     digitalWrite(THERAPY, LOW);
     digitalWrite(PAUSE, LOW);
+    digitalWrite(RED, LOW);
+    digitalWrite(BLUE, LOW);
     LEDsoff();
     Serial.println("Program Stopped!");
     while(1);
@@ -393,7 +428,8 @@ void loop() {
   }
   if(therapy_state){
     digitalWrite(THERAPY, !digitalRead(THERAPY));
-    therapy_state = 0;
+    digitalWrite(RED, LOW);
+    digitalWrite(BLUE, LOW);
   }
 	if (data_ready) {              // Check if background timer completed a sample
 		data_ready = 0;              // Reset flag immediately to catch next pass			
