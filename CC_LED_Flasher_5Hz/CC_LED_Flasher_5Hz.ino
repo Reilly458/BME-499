@@ -47,10 +47,14 @@ float last_HbR = 0.0;
 float last_HbO2 = 0.0;
 
 //Button States add pause and stop buttons?
-volatile int olfacto_state = 0;
-volatile int therapy_state = 0;
-volatile int stopped = 0;
-volatile int running = 1;
+volatile bool olfacto_pending = false;
+volatile bool therapy_pending = false;
+volatile bool stopped = false;
+volatile bool running = true;
+volatile unsigned long lastPMTime = 0;
+const unsigned long debounceDelay = 250;
+bool therapy_mode = false;
+bool olfacto_mode = false;
 
 void updateLED1(int TLC_channel, int brightness){
   Tlc.clear();
@@ -67,7 +71,7 @@ void getBaseline(int TLC_channel, int brightness){
   for(int i = 0; i < CAL_NUM; i++){
     int baseDC = adc_read(0);
     ambientDC += baseDC;    //Measure dark ambient light with both LEDs off, raw ADC value
-    int baseAC = adc_read(2);
+    int baseAC = adc_read(1);
     ambientAC += baseAC;
     /*Serial.print("Ambient DC = ");
     Serial.print(baseDC);
@@ -78,9 +82,8 @@ void getBaseline(int TLC_channel, int brightness){
   ambientDC /= CAL_NUM;
   ambientAC /= CAL_NUM;
   Serial.print("Ambient DC = ");
-  Serial.print(ambientDC);
-  Serial.print("  |  Ambient AC = ");
-  Serial.println(ambientAC);
+  Serial.println(ambientDC);
+
 
   int base = 0;
   int temp[CAL_NUM];
@@ -124,7 +127,7 @@ void getBaseline(int TLC_channel, int brightness){
   }
   Serial.println(I_base850);  
   LEDsoff();
-  delay(5000);
+  delay(2500);
 }
 
 void calibrate(){
@@ -137,7 +140,7 @@ void calibrate(){
   getBaseline(DEOXY_740NM, BRIGHT740);
 
   // Safety check to ensure the probe isn't reading open air/0 light
-  if (I_base740 < 1.0 || I_base850 < 1.0) {
+  if (I_base740 < 300.0 || I_base850 < 400.0 || (I_base850 - I_base740) < 75) {
     Serial.println("ERROR: Low baseline signal detected! Check probe placement and restart Arduino.");
     while(1); // Halt execution
   }
@@ -299,7 +302,7 @@ ISR(TIMER3_COMPA_vect) {
 
   time_ticks++;                        // Increment timeline counter
 
-  if(therapy_state){
+  if(therapy_mode > 0){
     if ((time_ticks % 2) == 1){
       LEDsoff();
     }
@@ -348,23 +351,33 @@ ISR(TIMER3_COMPA_vect) {
 
 //Olfactometer mode button
 ISR(INT0_vect){
-  olfacto_state = 1;
+  if(running && !olfacto_pending){
+    olfacto_pending = true;
+  } 
 }
 
 //Therapy mode button
 ISR(INT1_vect){
-  therapy_state = !therapy_state;
+ if(running && !therapy_pending){
+    therapy_pending = true;
+  }
 }
 
 //Pause/resume program
 ISR(INT2_vect){
-  running = !running;
-  EIFR = (1 << INTF2);
+  //running = !running;
+  //EIFR = (1 << INTF2);
+  unsigned long curTime = millis();
+  if(curTime - lastPMTime > debounceDelay){
+    running = !running;
+    lastPMTime = curTime;
+    EIFR = (1 << INTF2);
+  }
 }
 
 //Stop program
 ISR(INT3_vect){
-  stopped = 1;
+  stopped = true;
   EIFR = (1 << INTF3);
 }
 
@@ -412,25 +425,49 @@ void loop() {
 
   if(!running){
     LEDsoff();
-    digitalWrite(32, HIGH);
-    olfacto_state = 0;
-    therapy_state = 0;
+    digitalWrite(PAUSE, HIGH);
+    cli();
+    olfacto_pending = false;
+    therapy_pending = false;
+    sei();
+    delay(50);
     //Serial.println("System Paused.");
-    delay(200);
     return;
   }
 
-  digitalWrite(32, LOW);
+  digitalWrite(PAUSE, LOW);
 
-  if(olfacto_state){
-    digitalWrite(OLFACTO, !digitalRead(OLFACTO));
-    olfacto_state = 0;
+  if(therapy_pending){
+    therapy_mode = !therapy_mode;
+    cli();
+    therapy_pending = false;
+    sei();
   }
-  if(therapy_state){
-    digitalWrite(THERAPY, !digitalRead(THERAPY));
-    digitalWrite(RED, LOW);
+
+  if(olfacto_pending){
+    olfacto_mode = !olfacto_mode;
+    cli();
+    olfacto_pending = false;
+    sei();
+  }
+
+  if(therapy_mode){
+    digitalWrite(THERAPY, HIGH);
     digitalWrite(BLUE, LOW);
+    digitalWrite(RED, LOW);
+    return;
   }
+  else{
+    digitalWrite(THERAPY, LOW);
+  }
+
+  if(olfacto_mode){
+    digitalWrite(OLFACTO, HIGH);
+  }
+  else{
+    digitalWrite(OLFACTO, LOW);
+  }
+
 	if (data_ready) {              // Check if background timer completed a sample
 		data_ready = 0;              // Reset flag immediately to catch next pass			
     calculate_mBLL();
